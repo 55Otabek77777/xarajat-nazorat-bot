@@ -32,7 +32,7 @@ Faqat JSON qaytaring, LOTIN ALIFBOSIDA!
             image_data = f.read()
         
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-flash-latest",
             contents=[
                 types.Content(
                     role="user",
@@ -71,6 +71,7 @@ def format_ai_check_summary(data):
     text += f"\n💰 <b>Jami: {data['total']:,.0f} som</b>"
     
     return text, data["items"], data["total"]
+
 
 
 
