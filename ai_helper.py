@@ -1,4 +1,4 @@
-﻿from google import generativeai as genai
+﻿import google.generativeai as genai
 from config import GEMINI_API_KEYS, GEMINI_MODELS
 import base64
 import json

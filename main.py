@@ -14,6 +14,7 @@ from config import BOT_TOKEN, ADMIN_PANEL_URL, DB_PATH
 from database import init_db, add_transaction, get_transactions, get_transactions_by_date, get_monthly_stats
 from ai_helper import analyze_check_image, transcribe_voice
 from currency_api import get_usd_rate, format_currency
+from datetime import datetime, timedelta  # ← BU QO'SHILDI
 
 # Bot setup
 bot = Bot(token=BOT_TOKEN)
