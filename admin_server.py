@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -16,25 +17,28 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_usd_rate():
+    try:
+        response = requests.get("https://cbu.uz/uz/arkhiv-kursov-valyut/json/", timeout=5)
+        data = response.json()
+        for currency in data:
+            if currency["Ccy"] == "USD":
+                return {
+                    "rate": float(currency["Rate"]),
+                    "date": currency["Date"],
+                    "diff": currency.get("Diff", "0")
+                }
+    except:
+        pass
+    return {"rate": 12650, "date": datetime.now().strftime("%d.%m.%Y"), "diff": "0"}
+
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route("/api/check_password", methods=["POST"])
-def check_password():
-    data = request.json
-    user_id = data.get("user_id")
-    password = data.get("password")
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT password FROM admins WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result and result[0] == password:
-        return jsonify({"success": True})
-    return jsonify({"success": False})
+@app.route("/api/currency")
+def get_currency():
+    return jsonify(get_usd_rate())
 
 @app.route("/api/expenses")
 def get_expenses():
@@ -129,8 +133,8 @@ def export_excel():
     ws = wb.active
     ws.title = "Xarajatlar"
     
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="667eea", end_color="667eea", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=12)
     
     headers = ["ID", "Sana", "Kategoriya", "Summa (som)", "Izoh"]
     for col, header in enumerate(headers, 1):
@@ -148,8 +152,8 @@ def export_excel():
         ws.cell(row=row_idx, column=5, value=row["description"])
         total += row["amount"]
     
-    ws.cell(row=len(rows)+2, column=3, value="JAMI:")
-    ws.cell(row=len(rows)+2, column=4, value=total).font = Font(bold=True)
+    ws.cell(row=len(rows)+2, column=3, value="JAMI:").font = Font(bold=True)
+    ws.cell(row=len(rows)+2, column=4, value=total).font = Font(bold=True, size=14)
     
     for col in range(1, 6):
         ws.column_dimensions[chr(64+col)].width = 20
@@ -164,6 +168,7 @@ def export_excel():
         as_attachment=True,
         download_name=f"xarajatlar_{datetime.now().strftime('%Y%m%d')}.xlsx"
     )
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="uz">
@@ -180,7 +185,7 @@ HTML_TEMPLATE = """
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
@@ -193,6 +198,12 @@ HTML_TEMPLATE = """
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             overflow: hidden;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         .header {
@@ -200,11 +211,33 @@ HTML_TEMPLATE = """
             color: white;
             padding: 30px;
             text-align: center;
+            position: relative;
         }
         
         .header h1 {
             font-size: 2.5em;
             margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .currency-widget {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: rgba(255,255,255,0.2);
+            padding: 15px 25px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .currency-widget .rate {
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+        
+        .currency-widget .label {
+            font-size: 0.9em;
+            opacity: 0.9;
         }
         
         .filters {
@@ -256,7 +289,7 @@ HTML_TEMPLATE = """
         
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 20px;
             padding: 30px;
         }
@@ -267,6 +300,12 @@ HTML_TEMPLATE = """
             padding: 25px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
         }
         
         .stat-card h3 {
@@ -278,6 +317,12 @@ HTML_TEMPLATE = """
         .stat-card .value {
             font-size: 2em;
             font-weight: bold;
+        }
+        
+        .stat-card .usd {
+            font-size: 1.2em;
+            opacity: 0.8;
+            margin-top: 5px;
         }
         
         .chart-container {
@@ -316,6 +361,8 @@ HTML_TEMPLATE = """
         tbody tr:hover {
             background: #e3f2fd;
             cursor: pointer;
+            transform: scale(1.01);
+            transition: all 0.2s;
         }
         
         .amount {
@@ -338,14 +385,17 @@ HTML_TEMPLATE = """
         }
         
         @media (max-width: 768px) {
+            .header h1 { font-size: 1.8em; }
+            .currency-widget {
+                position: static;
+                margin-top: 15px;
+            }
             .filters {
                 flex-direction: column;
             }
-            
             .filter-group {
                 width: 100%;
             }
-            
             input[type="date"], select, button {
                 width: 100%;
             }
@@ -357,6 +407,10 @@ HTML_TEMPLATE = """
         <div class="header">
             <h1>📊 Admin Panel</h1>
             <p>Xarajatlar Nazorat Tizimi</p>
+            <div class="currency-widget">
+                <div class="label">💵 1 USD</div>
+                <div class="rate" id="usdRate">...</div>
+            </div>
         </div>
         
         <div class="filters">
@@ -387,6 +441,7 @@ HTML_TEMPLATE = """
             <div class="stat-card">
                 <h3>💰 JAMI SUMMA</h3>
                 <div class="value" id="totalAmount">0 som</div>
+                <div class="usd" id="totalUSD">$0.00</div>
             </div>
             <div class="stat-card">
                 <h3>📦 XARAJATLAR SONI</h3>
@@ -405,12 +460,13 @@ HTML_TEMPLATE = """
                         <th>№</th>
                         <th>📅 Sana</th>
                         <th>📦 Kategoriya</th>
-                        <th>💵 Summa</th>
+                        <th>💵 Summa (som)</th>
+                        <th>💵 Summa (USD)</th>
                         <th>📝 Izoh</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
-                    <tr><td colspan="5" class="loading">Yuklanmoqda...</td></tr>
+                    <tr><td colspan="6" class="loading">Yuklanmoqda...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -418,6 +474,18 @@ HTML_TEMPLATE = """
     
     <script>
         let chartInstance = null;
+        let usdRate = 12650;
+        
+        async function loadCurrency() {
+            try {
+                const res = await fetch('/api/currency');
+                const data = await res.json();
+                usdRate = data.rate;
+                document.getElementById('usdRate').textContent = formatNumber(data.rate) + ' som';
+            } catch (e) {
+                console.error('Currency error:', e);
+            }
+        }
         
         function updatePeriod() {
             const period = document.getElementById('period').value;
@@ -433,6 +501,10 @@ HTML_TEMPLATE = """
         
         function formatNumber(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+        
+        function somToUsd(som) {
+            return (som / usdRate).toFixed(2);
         }
         
         async function loadData() {
@@ -459,6 +531,7 @@ HTML_TEMPLATE = """
                 const stats = await statsRes.json();
                 
                 document.getElementById('totalAmount').textContent = formatNumber(stats.total) + ' som';
+                document.getElementById('totalUSD').textContent = '$' + somToUsd(stats.total);
                 document.getElementById('totalCount').textContent = stats.count + ' ta';
                 
                 const tbody = document.getElementById('tableBody');
@@ -471,6 +544,7 @@ HTML_TEMPLATE = """
                         <td>${exp.date}</td>
                         <td>${exp.category}</td>
                         <td class="amount">${formatNumber(exp.amount)} som</td>
+                        <td class="amount">$${somToUsd(exp.amount)}</td>
                         <td>${exp.description}</td>
                     `;
                 });
@@ -535,6 +609,7 @@ HTML_TEMPLATE = """
             window.location.href = url;
         }
         
+        loadCurrency();
         loadData();
     </script>
 </body>
@@ -546,7 +621,10 @@ if __name__ == "__main__":
     print("🌐 ADMIN PANEL SERVERI ISHGA TUSHDI!")
     print("=" * 50)
     print("\n📍 URL: http://localhost:5000")
-    print("\n✅ Brauzerda ochish uchun yuqoridagi URL ni bosing")
+    print("\n✅ Dollar kursi: CBU API")
+    print("✅ Professional dizayn")
+    print("✅ Chart.js grafik")
+    print("✅ Excel export")
     print("\n⚠️  To'xtatish: Ctrl+C\n")
     print("=" * 50)
     app.run(host="0.0.0.0", port=5000, debug=True)
