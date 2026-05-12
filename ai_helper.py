@@ -1,25 +1,21 @@
-﻿import google.genai as genai
+﻿from google import generativeai as genai
 from config import GEMINI_API_KEYS, GEMINI_MODELS
 import base64
 import json
 import re
 
-# API key va model index
 current_key_index = 0
 current_model_index = 0
 
 def get_next_model():
-    """Keyingi modelga o'tish"""
     global current_model_index
     current_model_index = (current_model_index + 1) % len(GEMINI_MODELS)
     return GEMINI_MODELS[current_model_index]
 
 def init_gemini():
-    """Gemini'ni ishga tushirish"""
     genai.configure(api_key=GEMINI_API_KEYS[current_key_index])
 
 def transliterate_to_latin(text):
-    """Kiril -> Lotin"""
     kiril_latin = {
         'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
         'ж': 'j', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
@@ -30,14 +26,11 @@ def transliterate_to_latin(text):
         'Ж': 'J', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
         'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
         'Ф': 'F', 'Х': 'X', 'Ц': 'S', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sh', 'Ъ': '',
-        'Ы': 'I', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya',
-        'ў': "o'", 'қ': 'q', 'ғ': "g'", 'ҳ': 'h',
-        'Ў': "O'", 'Қ': 'Q', 'Ғ': "G'", 'Ҳ': 'H'
+        'Ы': 'I', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
     }
     return ''.join(kiril_latin.get(c, c) for c in text)
 
 async def analyze_check_image(image_path: str) -> dict:
-    """Chek rasmini tahlil qilish (Smart Fallback)"""
     init_gemini()
     
     with open(image_path, "rb") as f:
@@ -81,7 +74,6 @@ Rules:
             
             data = json.loads(text)
             
-            # Lotin'ga o'girish
             if "items" in data:
                 for item in data["items"]:
                     if "name" in item:
@@ -93,22 +85,18 @@ Rules:
             error_str = str(e).lower()
             
             if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
-                # Limit tugadi - keyingi modelga o'tish
                 old_model = GEMINI_MODELS[current_model_index]
                 new_model = get_next_model()
-                print(f"⚠️ {old_model} limiti tugadi. {new_model} ga o'tildi.")
+                print(f"AI limit tugadi: {old_model} -> {new_model}")
                 continue
             else:
-                # Boshqa xato
                 print(f"AI xatosi: {e}")
                 get_next_model()
                 continue
     
-    # Barcha modellar ishlamadi
-    return {"items": [], "total": 0, "error": "Barcha AI modellar limiti tugagan. Iltimos, keyinroq qayta urinib ko'ring."}
+    return {"items": [], "total": 0, "error": "Barcha AI modellar limiti tugagan."}
 
 async def transcribe_voice(voice_path: str) -> dict:
-    """Ovozni matn va JSONga aylantirish (Smart Fallback)"""
     init_gemini()
     
     with open(voice_path, "rb") as f:
@@ -147,7 +135,6 @@ Rules:
             
             data = json.loads(text)
             
-            # Lotin'ga o'girish
             if "transcription" in data:
                 data["transcription"] = transliterate_to_latin(data["transcription"])
             if "category" in data:
@@ -161,7 +148,7 @@ Rules:
             if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
                 old_model = GEMINI_MODELS[current_model_index]
                 new_model = get_next_model()
-                print(f"⚠️ {old_model} limiti tugadi. {new_model} ga o'tildi.")
+                print(f"AI limit tugadi: {old_model} -> {new_model}")
                 continue
             else:
                 print(f"AI xatosi: {e}")
