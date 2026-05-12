@@ -8,6 +8,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN, ADMIN_PANEL_URL
 from database import init_db, add_expense, get_all_expenses, get_expenses_by_date, get_expenses_by_date_range
@@ -16,8 +18,11 @@ from ai_helper import analyze_check_image, transcribe_voice
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Bot initialization
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+# Bot initialization (YANGI SINTAKSIS)
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
