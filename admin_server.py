@@ -1,4 +1,4 @@
-﻿from flask import Flask, jsonify, request, send_file, render_template_string
+﻿from flask import Flask, jsonify, request, send_file, render_template_string, session, redirect
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime, timedelta
@@ -6,11 +6,14 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 import requests
+import secrets
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)
 CORS(app)
 
 DB_PATH = "expenses.db"
+ADMIN_PASSWORD = "@Mirzo77"
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -34,14 +37,36 @@ def get_usd_rate():
 
 @app.route("/")
 def index():
+    if not session.get("authenticated"):
+        return render_template_string(LOGIN_TEMPLATE)
     return render_template_string(HTML_TEMPLATE)
+
+@app.route("/login", methods=["POST"])
+def login():
+    password = request.form.get("password")
+    if password == ADMIN_PASSWORD:
+        session["authenticated"] = True
+        session.permanent = True
+        app.permanent_session_lifetime = timedelta(hours=24)
+        return redirect("/")
+    return render_template_string(LOGIN_TEMPLATE, error="Parol noto'g'ri!")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
 @app.route("/api/currency")
 def get_currency():
+    if not session.get("authenticated"):
+        return jsonify({"error": "Unauthorized"}), 401
     return jsonify(get_usd_rate())
 
 @app.route("/api/expenses")
 def get_expenses():
+    if not session.get("authenticated"):
+        return jsonify({"error": "Unauthorized"}), 401
+    
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
     
@@ -76,6 +101,9 @@ def get_expenses():
 
 @app.route("/api/stats")
 def get_stats():
+    if not session.get("authenticated"):
+        return jsonify({"error": "Unauthorized"}), 401
+    
     period = request.args.get("period", "all")
     
     conn = get_db()
@@ -111,6 +139,9 @@ def get_stats():
 
 @app.route("/api/export")
 def export_excel():
+    if not session.get("authenticated"):
+        return "Unauthorized", 401
+    
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
     
@@ -168,6 +199,139 @@ def export_excel():
         as_attachment=True,
         download_name=f"xarajatlar_{datetime.now().strftime('%Y%m%d')}.xlsx"
     )
+
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Xarajatlar Nazorat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            font-size: 2em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .login-header p {
+            color: #666;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        input[type="password"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+        
+        input[type="password"]:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>🔐 Admin Panel</h1>
+            <p>Xarajatlar Nazorat Tizimi</p>
+        </div>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="password">Parol:</label>
+                <input type="password" id="password" name="password" placeholder="Parolni kiriting" required autofocus>
+            </div>
+            
+            <button type="submit">Kirish</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -238,6 +402,22 @@ HTML_TEMPLATE = """
         .currency-widget .label {
             font-size: 0.9em;
             opacity: 0.9;
+        }
+        
+        .logout-btn {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            color: white;
+            text-decoration: none;
+            backdrop-filter: blur(10px);
+        }
+        
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
         }
         
         .filters {
@@ -386,7 +566,7 @@ HTML_TEMPLATE = """
         
         @media (max-width: 768px) {
             .header h1 { font-size: 1.8em; }
-            .currency-widget {
+            .currency-widget, .logout-btn {
                 position: static;
                 margin-top: 15px;
             }
@@ -405,6 +585,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
+            <a href="/logout" class="logout-btn">🚪 Chiqish</a>
             <h1>📊 Admin Panel</h1>
             <p>Xarajatlar Nazorat Tizimi</p>
             <div class="currency-widget">
@@ -621,10 +802,8 @@ if __name__ == "__main__":
     print("🌐 ADMIN PANEL SERVERI ISHGA TUSHDI!")
     print("=" * 50)
     print("\n📍 URL: http://localhost:5000")
-    print("\n✅ Dollar kursi: CBU API")
-    print("✅ Professional dizayn")
-    print("✅ Chart.js grafik")
-    print("✅ Excel export")
+    print(f"\n🔐 Parol: {ADMIN_PASSWORD}")
+    print("✅ Session: 24 soat")
     print("\n⚠️  To'xtatish: Ctrl+C\n")
     print("=" * 50)
     app.run(host="0.0.0.0", port=5000, debug=True)
