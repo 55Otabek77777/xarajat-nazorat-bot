@@ -1,5 +1,5 @@
 ﻿import google.generativeai as genai
-from config import GEMINI_API_KEYS, GEMINI_MODELS
+from config import GEMINI_API_KEYS, GEMINI_MODELS, ANTHROPIC_API_KEY, CLAUDE_MODEL
 import base64
 import json
 import re
@@ -30,8 +30,77 @@ def transliterate_to_latin(text):
     }
     return ''.join(kiril_latin.get(c, c) for c in text)
 
+async def try_claude_vision(image_base64: str, prompt: str) -> dict:
+    """Claude Haiku Vision (ENG ARZON - $0.25/1M tokens)"""
+    if not ANTHROPIC_API_KEY:
+        return None
+    
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        
+        message = client.messages.create(
+            model=CLAUDE_MODEL,  # claude-3-haiku-20240307
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_base64
+                            }
+                        },
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ]
+        )
+        
+        text = message.content[0].text.strip()
+        text = re.sub(r'```json\s*|\s*```', '', text).strip()
+        
+        data = json.loads(text)
+        
+        # Lotin alifbosiga o'girish
+        if "items" in data:
+            for item in data["items"]:
+                if "name" in item:
+                    item["name"] = transliterate_to_latin(item["name"])
+        
+        return data
+        
+    except Exception as e:
+        print(f"❌ Claude xatosi: {e}")
+        return None
+
+async def try_claude_audio(audio_base64: str, prompt: str) -> dict:
+    """Claude Haiku Audio (ovoz tanish)"""
+    if not ANTHROPIC_API_KEY:
+        return None
+    
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        
+        # Claude audio qo'llab-quvvatlamaydi, faqat text
+        # Shuning uchun ovoz uchun faqat Gemini ishlatamiz
+        return None
+        
+    except Exception as e:
+        print(f"❌ Claude audio xatosi: {e}")
+        return None
+
 async def analyze_check_image(image_path: str) -> dict:
-    init_gemini()
+    """
+    RASM TAHLIL QILISH TIZIMI:
+    1. Gemini (10+ model) - TEKIN
+    2. Claude Haiku - PULLIK ($0.25/1M tokens)
+    3. Matn orqali kiriting
+    """
     
     with open(image_path, "rb") as f:
         image_data = base64.standard_b64encode(f.read()).decode("utf-8")
@@ -57,9 +126,11 @@ Rules:
 - If no clear items, return {"items": [], "total": 0}
 """
     
-    max_attempts = len(GEMINI_MODELS)
+    # 1️⃣ GEMINI modellarni sinash (TEKIN)
+    init_gemini()
+    gemini_failed_count = 0
     
-    for attempt in range(max_attempts):
+    for attempt in range(len(GEMINI_MODELS)):
         try:
             model_name = GEMINI_MODELS[current_model_index]
             model = genai.GenerativeModel(model_name)
@@ -79,6 +150,7 @@ Rules:
                     if "name" in item:
                         item["name"] = transliterate_to_latin(item["name"])
             
+            print(f"✅ Gemini {model_name} muvaffaqiyatli")
             return data
             
         except Exception as e:
@@ -87,16 +159,38 @@ Rules:
             if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
                 old_model = GEMINI_MODELS[current_model_index]
                 new_model = get_next_model()
-                print(f"AI limit tugadi: {old_model} -> {new_model}")
+                gemini_failed_count += 1
+                print(f"⚠️ {old_model} limiti tugadi → {new_model} ({gemini_failed_count}/{len(GEMINI_MODELS)})")
                 continue
             else:
-                print(f"AI xatosi: {e}")
+                print(f"❌ Gemini xatosi: {e}")
                 get_next_model()
                 continue
     
-    return {"items": [], "total": 0, "error": "Barcha AI modellar limiti tugagan."}
+    # 2️⃣ CLAUDE HAIKU (PULLIK - eng arzon)
+    print(f"⚠️ Barcha {len(GEMINI_MODELS)} Gemini model limiti tugadi!")
+    print("💰 Claude Haiku API ishga tushmoqda...")
+    
+    claude_result = await try_claude_vision(image_data, prompt)
+    if claude_result:
+        print("✅ Claude Haiku muvaffaqiyatli! Rasmingiz tahlil qilindi.")
+        claude_result["_used_claude"] = True  # Debug flag
+        return claude_result
+    
+    # 3️⃣ Hech biri ishlamadi
+    print("❌ Barcha AI modellar ishlamadi")
+    return {
+        "items": [],
+        "total": 0,
+        "error": "AI tahlil qila olmadi. Iltimos, xarajatni matn orqali kiriting."
+    }
 
 async def transcribe_voice(voice_path: str) -> dict:
+    """
+    OVOZ TANISH TIZIMI:
+    1. Gemini (10+ model) - TEKIN
+    2. Matn orqali kiriting (Claude ovozni taniy olmaydi)
+    """
     init_gemini()
     
     with open(voice_path, "rb") as f:
@@ -118,9 +212,9 @@ Rules:
 - Common categories: QURILISH, OZIQ-OVQAT, TRANSPORT, ALOQA, BOSHQA
 """
     
-    max_attempts = len(GEMINI_MODELS)
+    gemini_failed_count = 0
     
-    for attempt in range(max_attempts):
+    for attempt in range(len(GEMINI_MODELS)):
         try:
             model_name = GEMINI_MODELS[current_model_index]
             model = genai.GenerativeModel(model_name)
@@ -140,6 +234,7 @@ Rules:
             if "category" in data:
                 data["category"] = transliterate_to_latin(data["category"])
             
+            print(f"✅ Gemini {model_name} ovozni tanidi")
             return data
             
         except Exception as e:
@@ -148,11 +243,20 @@ Rules:
             if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
                 old_model = GEMINI_MODELS[current_model_index]
                 new_model = get_next_model()
-                print(f"AI limit tugadi: {old_model} -> {new_model}")
+                gemini_failed_count += 1
+                print(f"⚠️ {old_model} limiti tugadi → {new_model} ({gemini_failed_count}/{len(GEMINI_MODELS)})")
                 continue
             else:
-                print(f"AI xatosi: {e}")
+                print(f"❌ Gemini xatosi: {e}")
                 get_next_model()
                 continue
     
-    return {"transcription": "", "amount": 0, "category": "BOSHQA", "error": "Barcha AI modellar limiti tugagan."}
+    print(f"⚠️ Barcha {len(GEMINI_MODELS)} Gemini model limiti tugadi!")
+    print("❌ Claude ovozni taniy olmaydi. Matn orqali kiriting.")
+    
+    return {
+        "transcription": "",
+        "amount": 0,
+        "category": "BOSHQA",
+        "error": "AI ovozni taniy olmadi. Iltimos, xarajatni matn orqali kiriting."
+    }
