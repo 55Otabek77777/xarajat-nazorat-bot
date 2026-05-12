@@ -1,0 +1,7 @@
+﻿venv/
+__pycache__/
+*.pyc
+.env
+check_*.jpg
+voice_*.ogg
+expenses.db
