@@ -216,7 +216,7 @@ Faqat JSON, LOTIN ALIFBOSIDA!
 """
         
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=[genai_types.Content(role="user", parts=[
                 genai_types.Part.from_bytes(data=audio_data, mime_type="audio/ogg"),
                 genai_types.Part.from_text(text=prompt)
@@ -365,4 +365,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
