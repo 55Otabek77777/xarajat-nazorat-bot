@@ -6,8 +6,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN, GEMINI_API_KEY
-from database import init_db, add_transaction, check_admin, add_admin
+from config import BOT_TOKEN, GEMINI_API_KEY, ADMIN_PANEL_URL
+from database import init_db, add_transaction, get_user_transactions
 from ai_helper import analyze_check_with_ai, format_ai_check_summary, get_tashkent_time
 from google import genai
 from google.genai import types as genai_types
@@ -26,9 +26,6 @@ class AddExpense(StatesGroup):
     confirming_voice = State()
     waiting_text_amount = State()
     waiting_text_description = State()
-
-class AdminAuth(StatesGroup):
-    password = State()
 
 def main_menu():
     return types.ReplyKeyboardMarkup(
@@ -325,55 +322,18 @@ async def text_description(message: types.Message, state: FSMContext):
     await state.clear()
 
 @dp.message(F.text == "🔐 ADMIN")
-async def btn_admin(message: types.Message, state: FSMContext):
-    keyboard = [[types.KeyboardButton(text="🔙 Bekor qilish")]]
+async def btn_admin(message: types.Message):
     await message.answer(
-        "🔐 <b>Admin paneliga kirish</b>\n\nParolni kiriting:",
-        reply_markup=types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True),
+        f"🌐 <b>Admin Panel</b>\n\n"
+        f"Quyidagi havola orqali admin panelga kiring:\n\n"
+        f"{ADMIN_PANEL_URL}\n\n"
+        f"📊 Tezkor hisobot: /report",
+        reply_markup=main_menu(),
         parse_mode="HTML"
     )
-    await state.set_state(AdminAuth.password)
-
-@dp.message(AdminAuth.password)
-async def admin_auth(message: types.Message, state: FSMContext):
-    if message.text == "🔙 Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=main_menu())
-        return
-    
-    user_id = message.from_user.id
-    password = message.text
-    
-    if not check_admin(user_id, password):
-        if password == "@Mirzo77":
-            add_admin(user_id, message.from_user.username, password)
-            await message.answer(
-                "✅ <b>Admin sifatida royxatdan otdingiz!</b>\n\n"
-                "🌐 <b>Veb panel:</b>\nhttp://localhost:5000\n\n"
-                "📊 Tezkor hisobot: /report\n\n"
-                "💡 Veb panelda: statistika, grafik, Excel export",
-                reply_markup=main_menu(),
-                parse_mode="HTML"
-            )
-            await state.clear()
-            return
-    
-    if check_admin(user_id, password):
-        await message.answer(
-            "✅ <b>Admin panel</b>\n\n"
-            "🌐 <b>Veb ilova:</b>\nhttp://localhost:5000\n\n"
-            "📊 Tezkor hisobot: /report\n\n"
-            "💡 Veb panelda: kalendar, grafik, Excel export",
-            reply_markup=main_menu(),
-            parse_mode="HTML"
-        )
-        await state.clear()
-    else:
-        await message.answer("❌ Parol notogri! Qaytadan:")
 
 @dp.message(Command("report"))
 async def cmd_report(message: types.Message):
-    from database import get_user_transactions
     trans = get_user_transactions(message.from_user.id)
     
     if not trans:
@@ -387,7 +347,7 @@ async def cmd_report(message: types.Message):
         total += t[4]
     
     text += f"\n💰 <b>Jami: {total:,.0f} som</b>\n\n"
-    text += "🌐 To'liq hisobot: http://localhost:5000"
+    text += f"🌐 To'liq hisobot: {ADMIN_PANEL_URL}"
     await message.answer(text, parse_mode="HTML")
 
 async def main():
@@ -398,9 +358,8 @@ async def main():
     print("\n✅ Chek rasmi + AI tahlil")
     print("✅ Ovozli xabar + AI tahlil")
     print("✅ Matn orqali kiritish")
-    print("✅ Admin panel: /report")
-    print("\n🌐 Veb panel: http://localhost:5000")
-    print("   (Alohida terminalda: python admin_server.py)\n")
+    print("✅ Admin panel (parolsiz)")
+    print(f"\n🌐 Veb panel: {ADMIN_PANEL_URL}\n")
     print("=" * 50)
     await dp.start_polling(bot)
 
