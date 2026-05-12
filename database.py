@@ -1,88 +1,113 @@
 ﻿import sqlite3
-from config import DB_PATH
 from datetime import datetime
+from config import DB_PATH
 
-def get_db():
+def get_connection():
+    """Database connection"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    conn = get_db()
+    """Initialize database"""
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        category TEXT NOT NULL,
-        amount INTEGER NOT NULL,
-        description TEXT,
-        date TEXT NOT NULL
-    )
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            description TEXT
+        )
     """)
     
     conn.commit()
     conn.close()
+    print("✅ Baza tayyorl")
 
-def add_transaction(user_id, trans_type, category, amount, description, date):
-    conn = get_db()
+def add_expense(amount: int, category: str, description: str = ""):
+    """Add new expense"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute("""
-    INSERT INTO transactions (user_id, type, category, amount, description, date)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, trans_type, category, amount, description, date))
+    date = datetime.now().strftime("%Y-%m-%d")
+    
+    cursor.execute(
+        "INSERT INTO expenses (date, amount, category, description) VALUES (?, ?, ?, ?)",
+        (date, amount, category, description)
+    )
     
     conn.commit()
     conn.close()
 
-def get_transactions(limit=20):
-    conn = get_db()
+def get_all_expenses():
+    """Get all expenses"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM transactions ORDER BY date DESC LIMIT ?", (limit,))
-    rows = cursor.fetchall()
+    cursor.execute("SELECT * FROM expenses ORDER BY date DESC")
+    expenses = cursor.fetchall()
+    
     conn.close()
-    
-    return [dict(row) for row in rows]
+    return expenses
 
-def get_transactions_by_date(start_date, end_date=None):
-    conn = get_db()
+def get_expenses_by_date(date_str: str):
+    """Get expenses by specific date (YYYY-MM-DD)"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    if end_date:
-        cursor.execute("""
-        SELECT * FROM transactions 
-        WHERE date BETWEEN ? AND ?
-        ORDER BY date DESC
-        """, (start_date, end_date))
+    cursor.execute(
+        "SELECT * FROM expenses WHERE date = ? ORDER BY id DESC",
+        (date_str,)
+    )
+    expenses = cursor.fetchall()
+    
+    conn.close()
+    return expenses
+
+def get_expenses_by_date_range(start_date: str, end_date: str):
+    """Get expenses by date range (YYYY-MM-DD to YYYY-MM-DD)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT * FROM expenses WHERE date BETWEEN ? AND ? ORDER BY date DESC",
+        (start_date, end_date)
+    )
+    expenses = cursor.fetchall()
+    
+    conn.close()
+    return expenses
+
+def get_expenses_by_month(year: int, month: int):
+    """Get expenses by month"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    start_date = f"{year}-{month:02d}-01"
+    
+    if month == 12:
+        end_date = f"{year + 1}-01-01"
     else:
-        cursor.execute("""
-        SELECT * FROM transactions 
-        WHERE date LIKE ?
-        ORDER BY date DESC
-        """, (f"{start_date}%",))
+        end_date = f"{year}-{month + 1:02d}-01"
     
-    rows = cursor.fetchall()
+    cursor.execute(
+        "SELECT * FROM expenses WHERE date >= ? AND date < ? ORDER BY date DESC",
+        (start_date, end_date)
+    )
+    expenses = cursor.fetchall()
+    
     conn.close()
-    
-    return [dict(row) for row in rows]
+    return expenses
 
-def get_monthly_stats(year, month):
-    conn = get_db()
+def delete_expense(expense_id: int):
+    """Delete expense by ID"""
+    conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute("""
-    SELECT category, SUM(amount) as total
-    FROM transactions
-    WHERE date LIKE ?
-    GROUP BY category
-    ORDER BY total DESC
-    """, (f"{year}-{str(month).zfill(2)}%",))
+    cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
     
-    rows = cursor.fetchall()
+    conn.commit()
     conn.close()
-    
-    return [dict(row) for row in rows]
