@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -18,7 +18,7 @@ from ai_helper import analyze_check_image, transcribe_voice
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Bot initialization (YANGI SINTAKSIS)
+# Bot initialization
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -32,18 +32,32 @@ class ExpenseForm(StatesGroup):
     waiting_for_category = State()
     waiting_for_description = State()
 
+# ==================== DOIMIY KLAVIATURA ====================
+
+def get_main_keyboard():
+    """Pastdagi doimiy klaviatura"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="📸 Chek rasmi"),
+                KeyboardButton(text="🎤 Ovozli xabar")
+            ],
+            [
+                KeyboardButton(text="✍️ Matn yozish")
+            ],
+            [
+                KeyboardButton(text="📊 Hisobotlar"),
+                KeyboardButton(text="🔙 Orqaga")
+            ]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
+
 # ==================== START ====================
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📸 Chek rasmi", callback_data="photo")],
-        [InlineKeyboardButton(text="🎤 Ovozli xabar", callback_data="voice")],
-        [InlineKeyboardButton(text="✍️ Matn yozish", callback_data="text")],
-        [InlineKeyboardButton(text="📊 Hisobotlar", callback_data="reports")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back")]
-    ])
-    
     await message.answer(
         "✅ <b>BOT ISHGA TUSHDI!</b>\n\n"
         "=============================================\n\n"
@@ -56,31 +70,47 @@ async def cmd_start(message: Message):
         "✅ <b>Smart AI Fallback (10+ model)</b>\n\n"
         "=============================================\n\n"
         "Xarajat kiritish usulini tanlang:",
-        reply_markup=keyboard
+        reply_markup=get_main_keyboard()
     )
 
-@dp.callback_query(F.data == "start")
-async def callback_start(callback: CallbackQuery):
+# ==================== PASTDAGI TUGMALAR ====================
+
+@dp.message(F.text == "📸 Chek rasmi")
+async def btn_photo(message: Message, state: FSMContext):
+    await message.answer("📸 Chek rasmini yuboring:", reply_markup=get_main_keyboard())
+    await state.set_state("waiting_for_photo")
+
+@dp.message(F.text == "🎤 Ovozli xabar")
+async def btn_voice(message: Message, state: FSMContext):
+    await message.answer("🎤 Ovozli xabar yuboring:", reply_markup=get_main_keyboard())
+    await state.set_state("waiting_for_voice")
+
+@dp.message(F.text == "✍️ Matn yozish")
+async def btn_text(message: Message, state: FSMContext):
+    await message.answer("💰 Xarajat summasini kiriting (faqat raqam):", reply_markup=get_main_keyboard())
+    await state.set_state(ExpenseForm.waiting_for_amount)
+
+@dp.message(F.text == "📊 Hisobotlar")
+async def btn_reports(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📸 Chek rasmi", callback_data="photo")],
-        [InlineKeyboardButton(text="🎤 Ovozli xabar", callback_data="voice")],
-        [InlineKeyboardButton(text="✍️ Matn yozish", callback_data="text")],
-        [InlineKeyboardButton(text="📊 Hisobotlar", callback_data="reports")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back")]
+        [InlineKeyboardButton(text="📄 Haftalik hisobot", callback_data="report_week_text")],
+        [InlineKeyboardButton(text="📄 Oylik hisobot", callback_data="report_month_text")],
+        [InlineKeyboardButton(text="📄 Yillik hisobot", callback_data="report_year_text")],
+        [InlineKeyboardButton(text="📅 Oylar bo'yicha", callback_data="report_by_months")],
+        [InlineKeyboardButton(text="📊 Excel yuklash", callback_data="excel_menu")]
     ])
     
-    await callback.message.edit_text(
-        "Xarajat kiritish usulini tanlang:",
+    await message.answer(
+        "📊 <b>Hisobotlar bo'limi</b>\n\n"
+        "Kerakli hisobot turini tanlang:",
         reply_markup=keyboard
     )
 
-# ==================== CHEK RASMI ====================
+@dp.message(F.text == "🔙 Orqaga")
+async def btn_back(message: Message):
+    await cmd_start(message)
 
-@dp.callback_query(F.data == "photo")
-async def ask_for_photo(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("📸 Chek rasmini yuboring:")
-    await state.set_state("waiting_for_photo")
-    await callback.answer()
+# ==================== CHEK RASMI ====================
 
 @dp.message(F.photo)
 async def handle_photo(message: Message, state: FSMContext):
@@ -89,23 +119,20 @@ async def handle_photo(message: Message, state: FSMContext):
     if current_state != "waiting_for_photo":
         return
     
-    await message.answer("🔍 Chek tahlil qilinmoqda...")
+    await message.answer("🔍 Chek tahlil qilinmoqda...", reply_markup=get_main_keyboard())
     
-    # Rasmni yuklab olish
     photo = message.photo[-1]
     file = await bot.get_file(photo.file_id)
     file_path = f"/tmp/{photo.file_id}.jpg"
     await bot.download_file(file.file_path, file_path)
     
-    # AI tahlil
     result = await analyze_check_image(file_path)
     
     if "error" in result:
-        await message.answer(f"❌ {result['error']}")
+        await message.answer(f"❌ {result['error']}", reply_markup=get_main_keyboard())
         await state.clear()
         return
     
-    # Xarajatlarni saqlash
     if result.get("items"):
         for item in result["items"]:
             add_expense(
@@ -117,20 +144,15 @@ async def handle_photo(message: Message, state: FSMContext):
         await message.answer(
             f"✅ Chek saqlandi!\n\n"
             f"💰 Jami: {result.get('total', 0):,.0f} so'm\n"
-            f"📦 Mahsulotlar: {len(result['items'])} ta"
+            f"📦 Mahsulotlar: {len(result['items'])} ta",
+            reply_markup=get_main_keyboard()
         )
     else:
-        await message.answer("⚠️ Chekda ma'lumot topilmadi. Iltimos, qayta urinib ko'ring.")
+        await message.answer("⚠️ Chekda ma'lumot topilmadi. Iltimos, qayta urinib ko'ring.", reply_markup=get_main_keyboard())
     
     await state.clear()
 
 # ==================== OVOZLI XABAR ====================
-
-@dp.callback_query(F.data == "voice")
-async def ask_for_voice(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("🎤 Ovozli xabar yuboring:")
-    await state.set_state("waiting_for_voice")
-    await callback.answer()
 
 @dp.message(F.voice)
 async def handle_voice(message: Message, state: FSMContext):
@@ -139,23 +161,20 @@ async def handle_voice(message: Message, state: FSMContext):
     if current_state != "waiting_for_voice":
         return
     
-    await message.answer("🔊 Ovoz tanilmoqda...")
+    await message.answer("🔊 Ovoz tanilmoqda...", reply_markup=get_main_keyboard())
     
-    # Ovozni yuklab olish
     voice = message.voice
     file = await bot.get_file(voice.file_id)
     file_path = f"/tmp/{voice.file_id}.ogg"
     await bot.download_file(file.file_path, file_path)
     
-    # AI tahlil
     result = await transcribe_voice(file_path)
     
     if "error" in result:
-        await message.answer(f"❌ {result['error']}")
+        await message.answer(f"❌ {result['error']}", reply_markup=get_main_keyboard())
         await state.clear()
         return
     
-    # Xarajatni saqlash
     if result.get("amount", 0) > 0:
         add_expense(
             amount=result["amount"],
@@ -167,20 +186,15 @@ async def handle_voice(message: Message, state: FSMContext):
             f"✅ Ovoz saqlandi!\n\n"
             f"💰 Summa: {result['amount']:,.0f} so'm\n"
             f"📁 Kategoriya: {result['category']}\n"
-            f"📝 Matn: {result['transcription']}"
+            f"📝 Matn: {result['transcription']}",
+            reply_markup=get_main_keyboard()
         )
     else:
-        await message.answer("⚠️ Ovozda summa aniqlanmadi. Iltimos, matn orqali kiriting.")
+        await message.answer("⚠️ Ovozda summa aniqlanmadi. Iltimos, matn orqali kiriting.", reply_markup=get_main_keyboard())
     
     await state.clear()
 
 # ==================== MATN YOZISH ====================
-
-@dp.callback_query(F.data == "text")
-async def ask_for_amount(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("💰 Xarajat summasini kiriting (faqat raqam):")
-    await state.set_state(ExpenseForm.waiting_for_amount)
-    await callback.answer()
 
 @dp.message(ExpenseForm.waiting_for_amount)
 async def process_amount(message: Message, state: FSMContext):
@@ -200,14 +214,14 @@ async def process_amount(message: Message, state: FSMContext):
         await state.set_state(ExpenseForm.waiting_for_category)
         
     except ValueError:
-        await message.answer("❌ Noto'g'ri format! Faqat raqam kiriting (masalan: 50000)")
+        await message.answer("❌ Noto'g'ri format! Faqat raqam kiriting (masalan: 50000)", reply_markup=get_main_keyboard())
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category(callback: CallbackQuery, state: FSMContext):
     category = callback.data.replace("cat_", "")
     await state.update_data(category=category)
     
-    await callback.message.edit_text("📝 Izoh yozing (yoki /skip buyrug'ini yuboring):")
+    await callback.message.answer("📝 Izoh yozing (yoki /skip buyrug'ini yuboring):")
     await state.set_state(ExpenseForm.waiting_for_description)
     await callback.answer()
 
@@ -227,7 +241,8 @@ async def process_description(message: Message, state: FSMContext):
         f"✅ Xarajat saqlandi!\n\n"
         f"💰 Summa: {data['amount']:,.0f} so'm\n"
         f"📁 Kategoriya: {data['category']}\n"
-        f"📝 Izoh: {description or '-'}"
+        f"📝 Izoh: {description or '-'}",
+        reply_markup=get_main_keyboard()
     )
     
     await state.clear()
@@ -236,27 +251,25 @@ async def process_description(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "reports")
 async def show_reports_menu(callback: CallbackQuery):
-    """Hisobotlar asosiy menyusi"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📄 Haftalik hisobot", callback_data="report_week_text")],
         [InlineKeyboardButton(text="📄 Oylik hisobot", callback_data="report_month_text")],
         [InlineKeyboardButton(text="📄 Yillik hisobot", callback_data="report_year_text")],
         [InlineKeyboardButton(text="📅 Oylar bo'yicha", callback_data="report_by_months")],
-        [InlineKeyboardButton(text="📊 Excel yuklash", callback_data="excel_menu")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="start")]
+        [InlineKeyboardButton(text="📊 Excel yuklash", callback_data="excel_menu")]
     ])
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📊 <b>Hisobotlar bo'limi</b>\n\n"
         "Kerakli hisobot turini tanlang:",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 # ========== MATN HISOBOTLAR ==========
 
 @dp.callback_query(F.data == "report_week_text")
 async def report_week_text(callback: CallbackQuery):
-    """Haftalik hisobot (matn)"""
     today = datetime.now()
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=6)
@@ -290,15 +303,11 @@ async def report_week_text(callback: CallbackQuery):
     
     report_text += f"\n💰 <b>Jami: {total_amount:,.0f} so'm</b>"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="reports")]
-    ])
-    
-    await callback.message.edit_text(report_text, reply_markup=keyboard)
+    await callback.message.answer(report_text)
+    await callback.answer()
 
 @dp.callback_query(F.data == "report_month_text")
 async def report_month_text(callback: CallbackQuery):
-    """Oylik hisobot (matn)"""
     today = datetime.now()
     month_start = today.replace(day=1)
     next_month = month_start + timedelta(days=32)
@@ -336,15 +345,11 @@ async def report_month_text(callback: CallbackQuery):
     
     report_text += f"\n💰 <b>Jami: {total_amount:,.0f} so'm</b>"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="reports")]
-    ])
-    
-    await callback.message.edit_text(report_text, reply_markup=keyboard)
+    await callback.message.answer(report_text)
+    await callback.answer()
 
 @dp.callback_query(F.data == "report_year_text")
 async def report_year_text(callback: CallbackQuery):
-    """Yillik hisobot (matn)"""
     today = datetime.now()
     year_start = today.replace(month=1, day=1)
     year_end = today.replace(month=12, day=31)
@@ -378,17 +383,13 @@ async def report_year_text(callback: CallbackQuery):
     
     report_text += f"\n💰 <b>Jami: {total_amount:,.0f} so'm</b>"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="reports")]
-    ])
-    
-    await callback.message.edit_text(report_text, reply_markup=keyboard)
+    await callback.message.answer(report_text)
+    await callback.answer()
 
 # ========== OYLAR BO'YICHA ==========
 
 @dp.callback_query(F.data == "report_by_months")
 async def show_months(callback: CallbackQuery):
-    """12 oyni ko'rsatish"""
     months = [
         ("Yanvar", 1), ("Fevral", 2), ("Mart", 3),
         ("Aprel", 4), ("May", 5), ("Iyun", 6),
@@ -408,16 +409,14 @@ async def show_months(callback: CallbackQuery):
                 ))
         keyboard.append(row)
     
-    keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="reports")])
-    
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📅 <b>Oyni tanlang:</b>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("month_"))
 async def show_days(callback: CallbackQuery):
-    """Tanlangan oy kunlarini ko'rsatish"""
     month = int(callback.data.split("_")[1])
     year = datetime.now().year
     
@@ -446,17 +445,15 @@ async def show_days(callback: CallbackQuery):
     if row:
         keyboard.append(row)
     
-    keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="report_by_months")])
-    
-    await callback.message.edit_text(
+    await callback.message.answer(
         f"📅 <b>{month_names[month]} {year}</b>\n\n"
         "Kunni tanlang:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("day_"))
 async def show_day_report(callback: CallbackQuery):
-    """Tanlangan kun hisoboti"""
     parts = callback.data.split("_")
     year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
     
@@ -479,33 +476,28 @@ async def show_day_report(callback: CallbackQuery):
     
     report_text += f"\n💰 <b>Jami: {total:,.0f} so'm</b>"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"month_{month}")]
-    ])
-    
-    await callback.message.edit_text(report_text, reply_markup=keyboard)
+    await callback.message.answer(report_text)
+    await callback.answer()
 
 # ========== EXCEL YUKLASH ==========
 
 @dp.callback_query(F.data == "excel_menu")
 async def excel_menu(callback: CallbackQuery):
-    """Excel yuklash menyusi"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Haftalik Excel", callback_data="excel_week")],
         [InlineKeyboardButton(text="📊 Oylik Excel", callback_data="excel_month")],
-        [InlineKeyboardButton(text="📊 Yillik Excel", callback_data="excel_year")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="reports")]
+        [InlineKeyboardButton(text="📊 Yillik Excel", callback_data="excel_year")]
     ])
     
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📊 <b>Excel yuklash</b>\n\n"
         "Davr turini tanlang:",
         reply_markup=keyboard
     )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("excel_"))
 async def generate_excel(callback: CallbackQuery):
-    """Excel fayl yaratish"""
     period = callback.data.split("_")[1]
     
     today = datetime.now()
@@ -587,13 +579,6 @@ async def generate_excel(callback: CallbackQuery):
     )
     
     await callback.answer("✅ Excel fayl yuborildi!")
-
-# ==================== ORQAGA ====================
-
-@dp.callback_query(F.data == "back")
-async def go_back(callback: CallbackQuery):
-    await callback.answer("🔙 Asosiy menyuga qaytildi")
-    await callback_start(callback)
 
 # ==================== MAIN ====================
 
